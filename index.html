@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Manoirski — Spring + Summer '26</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✈️</text></svg>">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Newsreader:ital,opsz,wght@0,6..72,300;0,6..72,400;0,6..72,600;1,6..72,300;1,6..72,400&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body, #root { height: 100%; }
+  body { background: #faf7f4; color: #3a2e24; font-family: 'Newsreader', Georgia, serif; }
+
+  @keyframes popIn { from { opacity:0; transform: translate(-50%, 4px) scale(0.95); } to { opacity:1; transform: translate(-50%, 8px) scale(1); } }
+  @keyframes fadeIn { from { opacity:0; } to { opacity:1; } }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .cell { width: 40px; height: 40px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 13px; cursor: pointer; transition: all 0.12s ease; user-select: none; font-family: 'JetBrains Mono', monospace; position: relative; border: 1.5px solid transparent; font-weight: 400; }
+  .cell:hover { transform: scale(1.18); z-index: 10; }
+  .wk { padding: 5px 11px; border-radius: 7px; font-size: 11px; font-family: 'JetBrains Mono', monospace; border: 1.5px solid #e8e0d8; background: #fff; color: #8a7e74; cursor: pointer; transition: all 0.2s; white-space: nowrap; display: flex; align-items: center; gap: 4px; }
+  .wk:hover { border-color: #c4b8ac; color: #5a4e44; background: #fdf9f5; }
+  .wk-on { border-color: #228b68; color: #228b68; background: rgba(34,139,104,0.06); font-weight: 600; }
+  .dest { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 10px; border: 1.5px solid #ece6df; background: #fff; cursor: pointer; transition: all 0.2s; }
+  .dest:hover { border-color: #d4c8bb; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
+  .dest-on { border-color: #d4564e; background: #fff5f4; }
+  .person { padding: 6px 14px; border-radius: 100px; font-size: 13px; font-family: 'JetBrains Mono', monospace; border: 1.5px solid #e8e0d8; cursor: pointer; transition: all 0.2s; background: #fff; color: #8a7e74; }
+  .person:hover { border-color: #c4b8ac; }
+  .person-on { border-color: #3a2e24; background: #3a2e24; color: #faf7f4; font-weight: 700; }
+  .mnav { padding: 6px 12px; border-radius: 100px; font-size: 11px; font-family: 'JetBrains Mono', monospace; border: none; cursor: pointer; transition: all 0.2s; background: transparent; color: #b0a89e; font-weight: 400; }
+  .mnav-on { background: #3a2e24; color: #faf7f4; font-weight: 700; }
+  .tooltip { position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); background: #3a2e24; color: #faf7f4; border-radius: 8px; padding: 6px 10px; font-size: 11px; font-family: 'JetBrains Mono', monospace; white-space: nowrap; z-index: 50; pointer-events: none; box-shadow: 0 4px 16px rgba(0,0,0,0.2); }
+  .tooltip::after { content: ''; position: absolute; top: 100%; left: 50%; border: 5px solid transparent; border-top-color: #3a2e24; transform: translateX(-50%); }
+  .sync-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; margin-right: 5px; }
+  ::-webkit-scrollbar { width: 5px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: #ddd5cc; border-radius: 3px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useCallback, useRef, useEffect } = React;
+
+// ─── Config ──────────────────────────────────────────────────────────────────
+const JSONBIN_KEY = "$2a$10$MG5EVbOjMOOOpQ.U/eNXVO5rR.o69QTk8RpzAS0t/smHTYsGy5Lri";
+const BIN_NAME = "manoirski-planner-v1";
+let BIN_ID = null; // auto-discovered or created
+
+// ─── Data ────────────────────────────────────────────────────────────────────
+const YEAR = 2026;
+const MONTHS = [
+  { name: "April", short: "Apr", days: 30, start: 2, idx: 4 },
+  { name: "May", short: "May", days: 31, start: 4, idx: 5 },
+  { name: "June", short: "Jun", days: 30, start: 0, idx: 6 },
+  { name: "July", short: "Jul", days: 31, start: 2, idx: 7 },
+  { name: "August", short: "Aug", days: 31, start: 5, idx: 8 },
+];
+
+const TERMS = [
+  { label: "P2", bg: "#fff0f0", accent: "#d4736c", dot: "#c0564e", start: [0,1], end: [0,28] },
+  { label: "Break", bg: "#fff8e6", accent: "#c9a84c", dot: "#b8923a", start: [0,29], end: [1,3] },
+  { label: "P3", bg: "#eef2ff", accent: "#7088d4", dot: "#5a72be", start: [1,4], end: [2,19] },
+  { label: "Summer", bg: "#edfaf5", accent: "#5ab89a", dot: "#48a688", start: [2,20], end: [4,23] },
+];
+
+const termFor = (mi, d) => {
+  const v = mi*100+d;
+  for (const t of TERMS) { if (v >= t.start[0]*100+t.start[1] && v <= t.end[0]*100+t.end[1]) return t; }
+  return null;
+};
+
+const DESTINATIONS = [
+  { name: "San Sebastián", flag: "🇪🇸", cat: "wknd" },
+  { name: "Lisbon", flag: "🇵🇹", cat: "wknd" },
+  { name: "Madrid", flag: "🇪🇸", cat: "wknd" },
+  { name: "Amsterdam", flag: "🇳🇱", cat: "wknd" },
+  { name: "Copenhagen", flag: "🇩🇰", cat: "wknd" },
+  { name: "Slovenia", flag: "🇸🇮", cat: "wknd" },
+  { name: "Mallorca", flag: "🏝️", cat: "long" },
+  { name: "Algarve", flag: "🇵🇹", cat: "long" },
+  { name: "Switzerland", flag: "🇨🇭", cat: "long" },
+  { name: "Albania / Montenegro", flag: "🏔️", cat: "long" },
+  { name: "Norway", flag: "🇳🇴", cat: "long" },
+  { name: "Sicily", flag: "🇮🇹", cat: "long" },
+  { name: "Dolomites", flag: "⛰️", cat: "long" },
+];
+
+const FRIENDS = ["Amanda", "Gonzalo", "Guilherme", "Matheus", "Pippa"];
+const DOW = ["Mo","Tu","We","Th","Fr","Sa","Su"];
+const k = (mi, d) => `${mi}-${d}`;
+
+const HEAT = ["transparent","rgba(34,139,104,0.12)","rgba(34,139,104,0.24)","rgba(34,139,104,0.38)","rgba(34,139,104,0.55)","rgba(34,139,104,0.78)"];
+
+const getWeekends = (mi) => {
+  const m = MONTHS[mi], ws = [];
+  for (let d = 1; d <= m.days; d++) {
+    if ((m.start+d-1)%7 === 4) { const days=[d]; if(d+1<=m.days)days.push(d+1); if(d+2<=m.days)days.push(d+2); ws.push(days); }
+  }
+  return ws;
+};
+
+// ─── JSONBin helpers ─────────────────────────────────────────────────────────
+const headers = { "X-Master-Key": JSONBIN_KEY, "Content-Type": "application/json" };
+
+async function findOrCreateBin() {
+  // Try to find existing bin by checking recent bins
+  try {
+    const res = await fetch("https://api.jsonbin.io/v3/c/uncategorized/bins", { headers: { "X-Master-Key": JSONBIN_KEY } });
+    if (res.ok) {
+      const data = await res.json();
+      const existing = data.find(b => b.snippetMeta?.name === BIN_NAME);
+      if (existing) { BIN_ID = existing.record; return BIN_ID; }
+    }
+  } catch(e) { /* proceed to create */ }
+
+  // Create new bin
+  const empty = { avail: {}, blocks: {}, votes: {} };
+  FRIENDS.forEach(f => { empty.avail[f] = []; empty.blocks[f] = {}; empty.votes[f] = []; });
+  const res = await fetch("https://api.jsonbin.io/v3/b", {
+    method: "POST", headers: { ...headers, "X-Bin-Name": BIN_NAME, "X-Bin-Private": "false" },
+    body: JSON.stringify(empty),
+  });
+  const data = await res.json();
+  BIN_ID = data.metadata.id;
+  return BIN_ID;
+}
+
+async function loadData() {
+  if (!BIN_ID) await findOrCreateBin();
+  const res = await fetch(`https://api.jsonbin.io/v3/b/${BIN_ID}/latest`, { headers: { "X-Master-Key": JSONBIN_KEY, "X-Bin-Meta": "false" } });
+  return res.json();
+}
+
+async function saveData(data) {
+  if (!BIN_ID) return;
+  await fetch(`https://api.jsonbin.io/v3/b/${BIN_ID}`, {
+    method: "PUT", headers, body: JSON.stringify(data),
+  });
+}
+
+// Serialize/deserialize: Sets <-> Arrays for JSON
+function serialize(avail, blocks, votes) {
+  const a = {}, b = {}, v = {};
+  FRIENDS.forEach(f => {
+    a[f] = avail[f] ? [...avail[f]] : [];
+    b[f] = blocks[f] || {};
+    v[f] = votes[f] ? [...votes[f]] : [];
+  });
+  return { avail: a, blocks: b, votes: v };
+}
+
+function deserialize(data) {
+  const a = {}, b = {}, v = {};
+  FRIENDS.forEach(f => {
+    a[f] = new Set(data.avail?.[f] || []);
+    b[f] = data.blocks?.[f] || {};
+    v[f] = new Set(data.votes?.[f] || []);
+  });
+  return { avail: a, blocks: b, votes: v };
+}
+
+
+// ─── InlineReason ────────────────────────────────────────────────────────────
+function InlineReason({ position, onDone }) {
+  const [val, setVal] = useState("");
+  const ref = useRef(null);
+  useEffect(() => { ref.current?.focus(); }, []);
+  return (
+    <div style={{ position:"fixed", inset:0, zIndex:999 }} onClick={() => onDone(val)}>
+      <div style={{
+        position:"absolute", top:position.y, left:position.x,
+        transform:"translate(-50%, 8px)", animation:"popIn 0.15s ease",
+      }} onClick={e => e.stopPropagation()}>
+        <div style={{
+          background:"#fff", borderRadius:10, padding:"8px 10px",
+          boxShadow:"0 8px 32px rgba(0,0,0,0.18), 0 1px 4px rgba(0,0,0,0.08)",
+          border:"1.5px solid #e8e0d8", display:"flex", gap:6, alignItems:"center",
+        }}>
+          <input ref={ref} type="text" maxLength={40} placeholder="Reason (optional)…"
+            value={val} onChange={e => setVal(e.target.value)}
+            onKeyDown={e => { if(e.key==="Enter") onDone(val); if(e.key==="Escape") onDone(null); }}
+            style={{ border:"none", outline:"none", fontSize:12, width:160, padding:"4px 2px",
+              fontFamily:"'Newsreader', Georgia, serif", color:"#3a2e24", background:"transparent" }}
+          />
+          <button onClick={() => onDone(val)} style={{
+            border:"none", background:"#d4564e", color:"#fff", borderRadius:6,
+            padding:"4px 10px", fontSize:11, cursor:"pointer",
+            fontFamily:"'JetBrains Mono', monospace", fontWeight:600,
+          }}>✗</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+// ─── App ─────────────────────────────────────────────────────────────────────
+function App() {
+  const [user, setUser] = useState(() => localStorage.getItem("manoirski-user") || "");
+  const [avail, setAvail] = useState(() => { const a={}; FRIENDS.forEach(f=>a[f]=new Set()); return a; });
+  const [blocks, setBlocks] = useState(() => { const b={}; FRIENDS.forEach(f=>b[f]={}); return b; });
+  const [votes, setVotes] = useState(() => { const v={}; FRIENDS.forEach(f=>v[f]=new Set()); return v; });
+  const [dragging, setDragging] = useState(false);
+  const [dragAdd, setDragAdd] = useState(true);
+  const [reasonInput, setReasonInput] = useState(null);
+  const [hovered, setHovered] = useState(null);
+  const [scrolledMonth, setScrolledMonth] = useState(0);
+  const [syncStatus, setSyncStatus] = useState("loading"); // loading | synced | saving | error
+  const [lastSync, setLastSync] = useState(null);
+  const monthRefs = useRef([]);
+  const containerRef = useRef(null);
+  const saveTimeout = useRef(null);
+  const dataRef = useRef({ avail, blocks, votes });
+
+  // Keep ref in sync
+  useEffect(() => { dataRef.current = { avail, blocks, votes }; }, [avail, blocks, votes]);
+
+  // Persist user choice
+  useEffect(() => { if (user) localStorage.setItem("manoirski-user", user); }, [user]);
+
+  // Load on mount
+  useEffect(() => {
+    loadData().then(data => {
+      const d = deserialize(data);
+      setAvail(d.avail); setBlocks(d.blocks); setVotes(d.votes);
+      setSyncStatus("synced"); setLastSync(new Date());
+    }).catch(() => setSyncStatus("error"));
+
+    // Poll every 15s
+    const interval = setInterval(() => {
+      loadData().then(data => {
+        const d = deserialize(data);
+        setAvail(d.avail); setBlocks(d.blocks); setVotes(d.votes);
+        setSyncStatus("synced"); setLastSync(new Date());
+      }).catch(() => {});
+    }, 15000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Debounced save
+  const scheduleSave = useCallback(() => {
+    if (saveTimeout.current) clearTimeout(saveTimeout.current);
+    setSyncStatus("saving");
+    saveTimeout.current = setTimeout(() => {
+      const { avail: a, blocks: b, votes: v } = dataRef.current;
+      const s = serialize(a, b, v);
+      saveData(s).then(() => { setSyncStatus("synced"); setLastSync(new Date()); }).catch(() => setSyncStatus("error"));
+    }, 800);
+  }, []);
+
+  // Scroll spy
+  useEffect(() => {
+    const el = containerRef.current; if(!el) return;
+    const onScroll = () => {
+      const top = el.scrollTop + 120;
+      for (let i = monthRefs.current.length-1; i >= 0; i--) {
+        if (monthRefs.current[i]?.offsetTop <= top) { setScrolledMonth(i); break; }
+      }
+    };
+    el.addEventListener("scroll", onScroll, {passive:true});
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+
+  const scrollTo = (i) => monthRefs.current[i]?.scrollIntoView({behavior:"smooth", block:"start"});
+
+  // ─── Actions (all call scheduleSave) ─────────────────────────────────────
+  const markAvail = useCallback((k_, add) => {
+    setAvail(p => { const n={...p}; const s=new Set(n[user]); add?s.add(k_):s.delete(k_); n[user]=s; return n; });
+    if (add) setBlocks(p => { const n={...p}; const u={...n[user]}; delete u[k_]; n[user]=u; return n; });
+    scheduleSave();
+  }, [user, scheduleSave]);
+
+  const markBlock = useCallback((k_, reason) => {
+    setBlocks(p => { const n={...p}; const u={...n[user]}; u[k_]=reason||""; n[user]=u; return n; });
+    setAvail(p => { const n={...p}; const s=new Set(n[user]); s.delete(k_); n[user]=s; return n; });
+    scheduleSave();
+  }, [user, scheduleSave]);
+
+  const unblock = useCallback((k_) => {
+    setBlocks(p => { const n={...p}; const u={...n[user]}; delete u[k_]; n[user]=u; return n; });
+    scheduleSave();
+  }, [user, scheduleSave]);
+
+  const toggleWknd = useCallback((mi, days) => {
+    const keys = days.map(d => k(mi,d));
+    setAvail(p => {
+      const n={...p}; const s=new Set(n[user]);
+      const allOn = keys.every(k_ => s.has(k_));
+      keys.forEach(k_ => allOn ? s.delete(k_) : s.add(k_));
+      n[user]=s; return n;
+    });
+    setBlocks(p => { const n={...p}; const u={...n[user]}; days.forEach(d => delete u[k(mi,d)]); n[user]=u; return n; });
+    scheduleSave();
+  }, [user, scheduleSave]);
+
+  const toggleVote = useCallback((d) => {
+    setVotes(p => { const n={...p}; const s=new Set(n[user]); s.has(d)?s.delete(d):s.add(d); n[user]=s; return n; });
+    scheduleSave();
+  }, [user, scheduleSave]);
+
+  // Helpers
+  const countFree = (k_) => FRIENDS.filter(f => avail[f]?.has(k_)).length;
+  const countBlocked = (k_) => FRIENDS.filter(f => k_ in (blocks[f]||{})).length;
+  const isMyAvail = (k_) => avail[user]?.has(k_);
+  const isMyBlock = (k_) => k_ in (blocks[user]||{});
+  const vc = (d) => FRIENDS.filter(f => votes[f]?.has(d)).length;
+
+  const bestWindows = [];
+  MONTHS.forEach((m, mi) => {
+    let streak = [];
+    for (let d=1; d<=m.days; d++) {
+      if (countFree(k(mi,d))===5) streak.push(d);
+      else { if(streak.length>=3) bestWindows.push({mi,days:[...streak]}); streak=[]; }
+    }
+    if(streak.length>=3) bestWindows.push({mi,days:[...streak]});
+  });
+
+  const myFree = avail[user]?.size || 0;
+  const myBlocked = Object.keys(blocks[user]||{}).length;
+
+  // ─── Name picker screen ──────────────────────────────────────────────────
+  if (!user) return (
+    <div style={{ height:"100vh", display:"flex", alignItems:"center", justifyContent:"center", background:"#faf7f4" }}>
+      <div style={{ textAlign:"center", maxWidth:380, padding:"0 24px" }}>
+        <div style={{ fontSize:48, marginBottom:16 }}>✈️</div>
+        <h1 style={{ fontSize:28, fontWeight:600, marginBottom:6, letterSpacing:"-0.5px" }}>Manoirski</h1>
+        <p style={{ color:"#b0a89e", fontSize:15, fontStyle:"italic", marginBottom:32 }}>Spring + Summer '26</p>
+        <p style={{ fontSize:14, color:"#8a7e74", marginBottom:20 }}>Who are you?</p>
+        <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+          {FRIENDS.map(f => (
+            <button key={f} onClick={() => setUser(f)} style={{
+              padding:"14px", border:"1.5px solid #e8e0d8", borderRadius:12, background:"#fff",
+              fontSize:16, fontFamily:"'JetBrains Mono', monospace", cursor:"pointer",
+              color:"#3a2e24", transition:"all 0.2s",
+            }}
+            onMouseEnter={e => { e.target.style.borderColor="#3a2e24"; e.target.style.background="#3a2e24"; e.target.style.color="#faf7f4"; }}
+            onMouseLeave={e => { e.target.style.borderColor="#e8e0d8"; e.target.style.background="#fff"; e.target.style.color="#3a2e24"; }}
+            >{f}</button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+
+  // ─── Main UI ─────────────────────────────────────────────────────────────
+  return (
+    <div style={{ height:"100vh", display:"flex", flexDirection:"column" }}>
+      {reasonInput && <InlineReason position={{x:reasonInput.x, y:reasonInput.y}}
+        onDone={(reason) => { if(reason!==null) markBlock(reasonInput.key, reason); setReasonInput(null); }} />}
+
+      {/* Top bar */}
+      <div style={{ padding:"16px 24px 0", flexShrink:0 }}>
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:2 }}>
+          <div style={{ display:"flex", alignItems:"baseline", gap:10 }}>
+            <h1 style={{ fontSize:24, fontWeight:600, letterSpacing:"-0.5px" }}>Manoirski</h1>
+            <span style={{ fontSize:14, color:"#b0a89e", fontStyle:"italic" }}>Spring + Summer '26</span>
+          </div>
+          <div style={{ display:"flex", alignItems:"center", gap:8, fontSize:11, fontFamily:"'JetBrains Mono', monospace", color:"#b0a89e" }}>
+            <span className="sync-dot" style={{
+              background: syncStatus==="synced" ? "#228b68" : syncStatus==="saving" ? "#c9a84c" : syncStatus==="loading" ? "#b0a89e" : "#d4564e",
+              animation: syncStatus==="saving" || syncStatus==="loading" ? "spin 1s linear infinite" : "none",
+              borderRadius: syncStatus==="saving" || syncStatus==="loading" ? "2px" : "50%",
+            }} />
+            {syncStatus==="synced" && "synced"}
+            {syncStatus==="saving" && "saving…"}
+            {syncStatus==="loading" && "loading…"}
+            {syncStatus==="error" && "offline"}
+          </div>
+        </div>
+
+        {/* People row */}
+        <div style={{ display:"flex", gap:6, margin:"10px 0", flexWrap:"wrap", alignItems:"center" }}>
+          {FRIENDS.map(f => (
+            <button key={f} className={`person ${user===f?"person-on":""}`} onClick={() => setUser(f)}>
+              {f}
+              {(avail[f]?.size>0 || Object.keys(blocks[f]||{}).length>0) && (
+                <span style={{ marginLeft:4, fontSize:10, opacity:0.6 }}>
+                  {avail[f]?.size||0}
+                  {Object.keys(blocks[f]||{}).length>0 && <span style={{ color:user===f?"#ff9e9e":"#d4564e" }}>·{Object.keys(blocks[f]).length}</span>}
+                </span>
+              )}
+            </button>
+          ))}
+          <button onClick={() => { localStorage.removeItem("manoirski-user"); setUser(""); }}
+            style={{ border:"none", background:"none", color:"#b0a89e", fontSize:11, cursor:"pointer",
+              fontFamily:"'JetBrains Mono', monospace", padding:"4px 8px" }}>
+            switch ↗
+          </button>
+        </div>
+
+        <p style={{ fontSize:11, color:"#b0a89e", fontFamily:"'JetBrains Mono', monospace", marginBottom:6 }}>
+          click = free · right-click = blocked · drag to paint
+        </p>
+
+        {/* Month nav */}
+        <div style={{ display:"flex", gap:4, marginBottom:2 }}>
+          {MONTHS.map((m,i) => (
+            <button key={i} className={`mnav ${scrolledMonth===i?"mnav-on":""}`} onClick={() => scrollTo(i)}>{m.short}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* Scrollable content */}
+      <div ref={containerRef} style={{ flex:1, overflowY:"auto", padding:"12px 24px 24px" }}
+        onMouseUp={() => setDragging(false)} onMouseLeave={() => setDragging(false)}>
+
+        {MONTHS.map((m, mi) => {
+          const weekends = getWeekends(mi);
+          return (
+            <div key={mi} ref={el => monthRefs.current[mi]=el} style={{ marginBottom:32 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10 }}>
+                <h2 style={{ fontSize:20, fontWeight:600, letterSpacing:"-0.3px" }}>{m.name}</h2>
+                {TERMS.filter(t => {
+                  const ts=t.start[0]*100+t.start[1], te=t.end[0]*100+t.end[1], ms=mi*100+1, me=mi*100+m.days;
+                  return ts<=me && te>=ms;
+                }).map(t => (
+                  <span key={t.label} style={{ fontSize:10, fontFamily:"'JetBrains Mono', monospace", fontWeight:600,
+                    padding:"3px 8px", borderRadius:5, background:t.bg, color:t.dot, border:`1px solid ${t.accent}40` }}>{t.label}</span>
+                ))}
+              </div>
+
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(7, 40px)", gap:3, marginBottom:4 }}>
+                {DOW.map((d,i) => <div key={i} style={{ textAlign:"center", fontSize:10, color:"#b0a89e", fontFamily:"'JetBrains Mono', monospace", padding:"2px 0" }}>{d}</div>)}
+              </div>
+
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(7, 40px)", gap:3, marginBottom:10 }}>
+                {Array.from({length:m.start}).map((_,i) => <div key={`e${i}`} />)}
+                {Array.from({length:m.days}).map((_,i) => {
+                  const d=i+1, k_=k(mi,d);
+                  const free=countFree(k_), bl=countBlocked(k_);
+                  const isMine=isMyAvail(k_), isBlk=isMyBlock(k_);
+                  const dow=(m.start+i)%7, isWknd=dow>=5;
+                  const term=termFor(mi,d), isHov=hovered===k_;
+
+                  let bg="#fff";
+                  if(term) bg=term.bg;
+                  if(isWknd && !term) bg="#f5f1ed";
+                  if(free>0) bg=HEAT[free];
+                  if(isBlk) bg="#fde8e7";
+
+                  return (
+                    <div key={d} className="cell"
+                      onMouseDown={e => {
+                        e.preventDefault();
+                        if(e.button===2) return;
+                        if(isBlk) { unblock(k_); markAvail(k_,true); return; }
+                        const add=!isMine;
+                        setDragging(true); setDragAdd(add); markAvail(k_,add);
+                      }}
+                      onMouseEnter={() => { setHovered(k_); if(dragging) markAvail(k_,dragAdd); }}
+                      onMouseLeave={() => setHovered(null)}
+                      onContextMenu={e => {
+                        e.preventDefault();
+                        if(isBlk) { unblock(k_); }
+                        else { const r=e.currentTarget.getBoundingClientRect(); setReasonInput({key:k_, x:r.left+r.width/2, y:r.bottom}); }
+                      }}
+                      style={{
+                        background:bg,
+                        borderColor: isBlk ? "#d4564e80" : isMine ? "#228b68" : "transparent",
+                        color: free===5 ? "#fff" : isBlk ? "#c0564e" : isMine ? "#1a6b4a" : "#8a7e74",
+                        fontWeight: isMine||isBlk ? 700 : 400,
+                        textDecoration: isBlk ? "line-through" : "none",
+                        boxShadow: term&&free===0&&!isBlk ? `inset 0 -2.5px 0 0 ${term.accent}30` : "none",
+                      }}
+                    >
+                      {d}
+                      {free>0 && free<5 && !isBlk && <span style={{ position:"absolute", bottom:1, right:3, fontSize:7, color:"#228b68", fontWeight:700 }}>{free}</span>}
+                      {free===5 && <span style={{ position:"absolute", bottom:0, right:3, fontSize:7 }}>✓</span>}
+                      {isBlk && <span style={{ position:"absolute", top:0, right:2, fontSize:7, color:"#c0564e" }}>✗</span>}
+                      {bl>0 && !isBlk && <span style={{ position:"absolute", top:0, left:3, fontSize:7, color:"#d4564e" }}>{bl}</span>}
+                      {isHov && bl>0 && (
+                        <div className="tooltip">
+                          {FRIENDS.filter(f => k_ in (blocks[f]||{})).map(f => (
+                            <div key={f}>{f}{blocks[f][k_] ? ` — ${blocks[f][k_]}` : ""}</div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div style={{ display:"flex", gap:5, flexWrap:"wrap" }}>
+                {weekends.map((days,idx) => {
+                  const keys=days.map(d=>k(mi,d));
+                  const allOn=keys.every(k_=>isMyAvail(k_));
+                  return (
+                    <button key={idx} className={`wk ${allOn?"wk-on":""}`} onClick={() => toggleWknd(mi,days)}>
+                      {allOn && "✓ "}{m.short} {days[0]}–{days[days.length-1]}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+
+        {/* Perfect windows */}
+        {bestWindows.length>0 && (
+          <div style={{ margin:"8px 0 32px", padding:"16px 18px", background:"rgba(34,139,104,0.06)", borderRadius:14, border:"1.5px solid rgba(34,139,104,0.15)" }}>
+            <p style={{ fontSize:11, fontFamily:"'JetBrains Mono', monospace", fontWeight:700, color:"#228b68", marginBottom:8, textTransform:"uppercase", letterSpacing:1 }}>🎯 Everyone's free</p>
+            <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+              {bestWindows.map((w,i) => (
+                <span key={i} style={{ background:"#228b68", color:"#fff", padding:"6px 12px", borderRadius:8, fontSize:12, fontFamily:"'JetBrains Mono', monospace", fontWeight:700 }}>
+                  {MONTHS[w.mi].short} {w.days[0]}–{w.days[w.days.length-1]} <span style={{ opacity:0.7 }}>({w.days.length}d)</span>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Destinations */}
+        <div style={{ marginBottom:32 }}>
+          <h2 style={{ fontSize:20, fontWeight:600, marginBottom:4, letterSpacing:"-0.3px" }}>Where to?</h2>
+          <p style={{ fontSize:12, color:"#b0a89e", fontFamily:"'JetBrains Mono', monospace", marginBottom:14 }}>tap to vote as {user}</p>
+          {[{cat:"wknd",label:"Weekend trips"},{cat:"long",label:"Longer trips"}].map(({cat,label}) => (
+            <div key={cat} style={{ marginBottom:20 }}>
+              <p style={{ fontSize:11, fontFamily:"'JetBrains Mono', monospace", color:"#b0a89e", fontWeight:600, marginBottom:8, textTransform:"uppercase", letterSpacing:0.8 }}>{label}</p>
+              <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
+                {DESTINATIONS.filter(d=>d.cat===cat).sort((a,b)=>vc(b.name)-vc(a.name)).map(dest => {
+                  const v=vc(dest.name), voted=votes[user]?.has(dest.name);
+                  const voters=FRIENDS.filter(f=>votes[f]?.has(dest.name));
+                  return (
+                    <div key={dest.name} className={`dest ${voted?"dest-on":""}`} onClick={() => toggleVote(dest.name)} title={voters.length>0?voters.join(", "):"No votes yet"}>
+                      <span style={{ fontSize:18 }}>{dest.flag}</span>
+                      <span style={{ fontSize:13, fontWeight:voted?600:400 }}>{dest.name}</span>
+                      {v>0 && <span style={{ fontSize:10, fontFamily:"'JetBrains Mono', monospace", fontWeight:700,
+                        background:voted?"#d4564e":"#ece6df", color:voted?"#fff":"#8a7e74",
+                        padding:"2px 7px", borderRadius:100, marginLeft:2 }}>{v}</span>}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Legend */}
+        <div style={{ padding:"14px 16px", background:"#f2ede8", borderRadius:12, marginBottom:20,
+          display:"flex", gap:20, flexWrap:"wrap", alignItems:"center",
+          fontSize:11, fontFamily:"'JetBrains Mono', monospace", color:"#8a7e74" }}>
+          <span style={{ display:"flex", alignItems:"center", gap:5 }}>
+            <span style={{ width:14, height:14, borderRadius:5, border:"2px solid #228b68", display:"inline-block" }} /> free
+          </span>
+          <span style={{ display:"flex", alignItems:"center", gap:5 }}>
+            <span style={{ width:14, height:14, borderRadius:5, background:"#fde8e7", border:"2px solid #d4564e80", display:"inline-block" }} /> blocked
+          </span>
+          <span style={{ display:"flex", alignItems:"center", gap:3 }}>
+            {[1,2,3,4,5].map(n => <span key={n} style={{ width:12, height:12, borderRadius:4, background:HEAT[n], display:"inline-block" }} />)}
+            <span style={{ marginLeft:3 }}>1→5 free</span>
+          </span>
+          <span>{myFree} free · {myBlocked} blocked</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
