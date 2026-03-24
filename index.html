@@ -123,6 +123,34 @@
   @media (max-width: 480px) {
     .cell { font-size: 13px; border-radius: 8px; }
   }
+
+  .summary-card {
+    background: #fff; border: 1.5px solid #ece6df; border-radius: 12px;
+    margin: 0 0 12px; overflow: hidden; transition: all 0.2s;
+  }
+  .summary-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 14px; cursor: pointer; gap: 8px;
+  }
+  .summary-header:active { background: #f8f4f0; }
+  .summary-headline {
+    font-size: 12px; font-family: 'JetBrains Mono', monospace;
+    color: #3a2e24; line-height: 1.4; flex: 1;
+  }
+  .summary-chevron {
+    font-size: 11px; color: #b0a89e; transition: transform 0.2s;
+    flex-shrink: 0;
+  }
+  .summary-body { padding: 0 14px 14px; animation: fadeUp 0.2s ease; }
+  .wk-dot {
+    width: 18px; height: 18px; border-radius: 6px; display: inline-flex;
+    align-items: center; justify-content: center;
+    font-size: 7px; font-family: 'JetBrains Mono', monospace; font-weight: 700;
+    cursor: pointer; transition: all 0.15s; border: 1.5px solid transparent;
+    flex-shrink: 0;
+  }
+  .wk-dot:hover { transform: scale(1.25); }
+  .wk-dot:active { transform: scale(0.9); }
 </style>
 </head>
 <body>
@@ -263,6 +291,7 @@ function App() {
   const [toast, setToast] = useState(null);
   const [syncStatus, setSyncStatus] = useState("loading");
   const [tapped, setTapped] = useState(null); // key for tap animation
+  const [summaryOpen, setSummaryOpen] = useState(false);
 
   const saveTimeout = useRef(null);
   const dataRef = useRef({avail,blocks,votes});
@@ -400,6 +429,52 @@ function App() {
     if(streak.length>=3) bestWindows.push({mi,days:[...streak]});
   });
 
+  // ─── Summary data ────────────────────────────────────────────────────
+  // Score each weekend across all months: min free count across all 3 days
+  const allWeekendScores = [];
+  MONTHS.forEach((mo,mi) => {
+    const ws = getWeekends(mi);
+    ws.forEach(days => {
+      const minFree = Math.min(...days.map(d => countFree(K(mi,d))));
+      allWeekendScores.push({ mi, days, minFree, label: `${mo.short} ${days[0]}–${days[days.length-1]}` });
+    });
+  });
+  const goodWeekends = allWeekendScores.filter(w => w.minFree >= 3);
+  const perfectWeekends = allWeekendScores.filter(w => w.minFree === 5);
+
+  // Per-person per-month fill check: has at least 1 entry (free or blocked) in that month
+  const personMonthFill = {};
+  FRIENDS.forEach(f => {
+    personMonthFill[f] = MONTHS.map((mo, mi) => {
+      for(let d=1; d<=mo.days; d++) {
+        if(avail[f]?.has(K(mi,d)) || K(mi,d) in (blocks[f]||{})) return true;
+      }
+      return false;
+    });
+  });
+
+  // Build nudge messages
+  const nudges = [];
+  FRIENDS.forEach(f => {
+    const missing = MONTHS.map((mo,i) => personMonthFill[f][i] ? null : mo.short).filter(Boolean);
+    const totalEntries = (avail[f]?.size||0) + Object.keys(blocks[f]||{}).length;
+    if(totalEntries === 0) nudges.push({ name: f, msg: "hasn't started yet" });
+    else if(missing.length > 0) nudges.push({ name: f, msg: `hasn't touched ${missing.join(", ")}` });
+  });
+
+  // Headline
+  const summaryHeadline = (() => {
+    const totalEntries = FRIENDS.reduce((s,f) => s + (avail[f]?.size||0) + Object.keys(blocks[f]||{}).length, 0);
+    if(totalEntries === 0) return "No one has started yet — be the first!";
+    const parts = [];
+    if(goodWeekends.length > 0) parts.push(`${goodWeekends.length} good weekend${goodWeekends.length>1?"s":""}`);
+    if(perfectWeekends.length > 0) parts.push(`${perfectWeekends.length} perfect`);
+    if(parts.length === 0 && nudges.length > 0) return `Filling in… nudge ${nudges.map(n=>n.name).join(", ")}`;
+    if(parts.length === 0) return "Getting started — keep filling in dates!";
+    const nudgePart = nudges.length > 0 ? ` · Nudge ${nudges.map(n=>n.name).join(", ")}` : " · Everyone's filled in!";
+    return parts.join(" · ") + nudgePart;
+  })();
+
   const myFree = avail[user]?.size||0;
   const myBlocked = Object.keys(blocks[user]||{}).length;
   const m = MONTHS[activeMonth];
@@ -459,6 +534,80 @@ function App() {
               {mo.short}
             </button>
           ))}
+        </div>
+      </div>
+
+      {/* ─── Summary card ─── */}
+      <div style={{padding:"0 20px",flexShrink:0}}>
+        <div className="summary-card">
+          <div className="summary-header" onClick={()=>setSummaryOpen(!summaryOpen)}>
+            <div className="summary-headline">{summaryHeadline}</div>
+            <span className="summary-chevron" style={{transform:summaryOpen?"rotate(180deg)":"rotate(0)"}}>▼</span>
+          </div>
+          {summaryOpen && (
+            <div className="summary-body">
+              {/* Weekend dots by month */}
+              <div style={{marginBottom:12}}>
+                <p style={{fontSize:10,fontFamily:"var(--mono)",color:"var(--faint)",fontWeight:600,marginBottom:8,textTransform:"uppercase",letterSpacing:0.8}}>
+                  Weekends overview
+                </p>
+                {MONTHS.map((mo,mi) => {
+                  const ws = allWeekendScores.filter(w=>w.mi===mi);
+                  if(ws.length===0) return null;
+                  return (
+                    <div key={mi} style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
+                      <span style={{fontSize:10,fontFamily:"var(--mono)",color:"var(--faint)",width:30,flexShrink:0}}>{mo.short}</span>
+                      <div style={{display:"flex",gap:4}}>
+                        {ws.map((w,idx) => {
+                          const bg = w.minFree===0 ? "#f2ede8"
+                            : w.minFree<=2 ? "rgba(34,139,104,0.15)"
+                            : w.minFree<=4 ? "rgba(34,139,104,0.45)"
+                            : "rgba(34,139,104,0.82)";
+                          const color = w.minFree===0 ? "var(--faint)"
+                            : w.minFree<=2 ? "var(--green)"
+                            : w.minFree<=4 ? "#fff"
+                            : "#fff";
+                          const border = w.minFree>=3 ? "1.5px solid var(--green)" : "1.5px solid transparent";
+                          return (
+                            <div key={idx} className="wk-dot" title={`${w.label}: ${w.minFree}/5 free`}
+                              onClick={()=>{setActiveMonth(mi);setSummaryOpen(false);}}
+                              style={{background:bg,color,border}}>
+                              {w.minFree > 0 ? w.minFree : "·"}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+                <div style={{display:"flex",gap:10,marginTop:8,fontSize:10,fontFamily:"var(--mono)",color:"var(--faint)"}}>
+                  <span>· = 0</span>
+                  <span style={{color:"var(--green)"}}>■ 3+ = good</span>
+                  <span style={{color:"var(--green)",fontWeight:700}}>■ 5 = perfect</span>
+                </div>
+              </div>
+
+              {/* Nudges */}
+              {nudges.length > 0 && (
+                <div>
+                  <p style={{fontSize:10,fontFamily:"var(--mono)",color:"var(--faint)",fontWeight:600,marginBottom:6,textTransform:"uppercase",letterSpacing:0.8}}>
+                    Still waiting on
+                  </p>
+                  {nudges.map((n,i) => (
+                    <div key={i} style={{fontSize:12,fontFamily:"var(--mono)",color:"var(--muted)",marginBottom:3}}>
+                      <span style={{fontWeight:700,color:"var(--text)"}}>{n.name}</span>
+                      <span> — {n.msg}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {nudges.length === 0 && (
+                <p style={{fontSize:12,fontFamily:"var(--mono)",color:"var(--green)",fontWeight:600}}>
+                  ✓ Everyone has filled in every month
+                </p>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
